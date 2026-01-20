@@ -1,0 +1,61 @@
+### Register User
+POST http://localhost:5000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "password123"
+}
+
+### Login User
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "john@example.com",
+  "password": "password123"
+}
+
+### Get User Profile
+GET http://localhost:5000/api/auth/me
+Authorization: Bearer YOUR_TOKEN_HERE
+
+### Create Product (Admin)
+POST http://localhost:5000/api/products
+Authorization: Bearer ADMIN_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "name": "iPhone 15 Pro",
+  "description": "Latest iPhone with advanced features",
+  "price": 999.99,
+  "category": "electronics",
+  "brand": "Apple",
+  "stock": 50
+}
+
+### Get All Products
+GET http://localhost:5000/api/products?page=1&limit=10&category=electronics
+
+### Create Order
+POST http://localhost:5000/api/orders
+Authorization: Bearer USER_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "product": "PRODUCT_ID_HERE",
+      "quantity": 2
+    }
+  ],
+  "shippingAddress": {
+    "street": "123 Main St",
+    "city": "New York",
+    "state": "NY",
+    "zipCode": "10001",
+    "country": "USA"
+  },
+  "paymentMethod": "credit_card"
+}
