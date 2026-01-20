@@ -124,7 +124,7 @@ const sendProductAnalytics = async (socket, productId) => {
 };
 
 const startRealTimeUpdates = () => {
-    // Update dashboard every 30 seconds
+    // update dashboard every 30 seconds
     setInterval(async () => {
         const sockets = io.sockets.adapter.rooms.get('dashboard');
         if (sockets && sockets.size > 0) {
@@ -138,7 +138,7 @@ const startRealTimeUpdates = () => {
         }
     }, 30000);
 
-    // Update product analytics every 10 seconds
+    // update product analytics every 10 seconds
     setInterval(async () => {
         const productRooms = Object.keys(io.sockets.adapter.rooms).filter(room =>
             room.startsWith('product_')
@@ -161,7 +161,7 @@ const startRealTimeUpdates = () => {
     }, 10000);
 };
 
-// Emit real-time events
+// emit real-time events
 const emitOrderUpdate = (orderData) => {
     if (io) {
         io.emit('order_update', orderData);
