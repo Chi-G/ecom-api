@@ -74,7 +74,8 @@ const getProducts = async (req, res, next) => {
 
 const getProduct = async (req, res, next) => {
   try {
-    const product = await Product.findByPk(req.params.id, {
+    const product = await Product.findOne({
+      where: { id: req.params.id, is_active: true },
       include: [{
         model: Category,
         as: 'category',
@@ -111,7 +112,7 @@ const createProduct = async (req, res, next) => {
 const updateProduct = async (req, res, next) => {
   try {
     const [updatedRows] = await Product.update(req.body, {
-      where: { id: req.params.id }
+      where: { id: req.params.id, is_active: true }
     });
 
     if (updatedRows === 0) {
@@ -139,7 +140,7 @@ const deleteProduct = async (req, res, next) => {
   try {
     const [updatedRows] = await Product.update(
       { is_active: false },
-      { where: { id: req.params.id } }
+      { where: { id: req.params.id, is_active: true } }
     );
 
     if (updatedRows === 0) {

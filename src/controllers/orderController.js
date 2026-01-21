@@ -176,6 +176,9 @@ const getOrder = async (req, res, next) => {
 
 const updateOrderStatus = async (req, res, next) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ success: false, message: 'Request body is missing' });
+    }
     const { status } = req.body;
 
     const [updatedRows] = await Order.update(

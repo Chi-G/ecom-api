@@ -1,32 +1,31 @@
 const { sendEmail } = require('../config/email');
 const { sequelize } = require('../models');
-const redis = require('../config/redis');
 
 const sendOrderConfirmation = async (orderId, userEmail) => {
-    try {
-        const order = await sequelize.models.Order.findByPk(orderId, {
-            include: [
-                {
-                    model: sequelize.models.User,
-                    as: 'user',
-                    attributes: ['name', 'email']
-                },
-                {
-                    model: sequelize.models.OrderItem,
-                    as: 'items',
-                    include: [{
-                        model: sequelize.models.Product,
-                        as: 'product',
-                        attributes: ['name', 'images']
-                    }]
-                }
-            ]
-        });
+  try {
+    const order = await sequelize.models.Order.findByPk(orderId, {
+      include: [
+        {
+          model: sequelize.models.User,
+          as: 'user',
+          attributes: ['name', 'email']
+        },
+        {
+          model: sequelize.models.OrderItem,
+          as: 'items',
+          include: [{
+            model: sequelize.models.Product,
+            as: 'product',
+            attributes: ['name', 'images']
+          }]
+        }
+      ]
+    });
 
-        if (!order) return;
+    if (!order) return;
 
-        // Generate HTML email template
-        const htmlContent = `
+    // Generate HTML email template
+    const htmlContent = `
       <!DOCTYPE html>
       <html>
       <head>
@@ -77,30 +76,30 @@ const sendOrderConfirmation = async (orderId, userEmail) => {
       </html>
     `;
 
-        await sendEmail(
-            userEmail,
-            `Order Confirmation - #${orderId}`,
-            `Your order #${orderId} has been confirmed. Total: $${order.total_amount.toFixed(2)}`,
-            htmlContent
-        );
-    } catch (error) {
-        console.error('Error sending order confirmation:', error);
-    }
+    await sendEmail(
+      userEmail,
+      `Order Confirmation - #${orderId}`,
+      `Your order #${orderId} has been confirmed. Total: $${order.total_amount.toFixed(2)}`,
+      htmlContent
+    );
+  } catch (error) {
+    console.error('Error sending order confirmation:', error);
+  }
 };
 
 const sendShippingNotification = async (orderId, trackingNumber, carrier) => {
-    try {
-        const order = await sequelize.models.Order.findByPk(orderId, {
-            include: [{
-                model: sequelize.models.User,
-                as: 'user',
-                attributes: ['name', 'email']
-            }]
-        });
+  try {
+    const order = await sequelize.models.Order.findByPk(orderId, {
+      include: [{
+        model: sequelize.models.User,
+        as: 'user',
+        attributes: ['name', 'email']
+      }]
+    });
 
-        if (!order) return;
+    if (!order) return;
 
-        const htmlContent = `
+    const htmlContent = `
       <h1>Your Order Has Shipped!</h1>
       <p>Dear ${order.user.name},</p>
       <p>Great news! Your order #${orderId} has been shipped and is on its way to you.</p>
@@ -110,28 +109,28 @@ const sendShippingNotification = async (orderId, trackingNumber, carrier) => {
       <p>Thank you for shopping with us!</p>
     `;
 
-        await sendEmail(
-            order.user.email,
-            `Order Shipped - #${orderId}`,
-            `Your order #${orderId} has been shipped. Tracking: ${trackingNumber}`,
-            htmlContent
-        );
-    } catch (error) {
-        console.error('Error sending shipping notification:', error);
-    }
+    await sendEmail(
+      order.user.email,
+      `Order Shipped - #${orderId}`,
+      `Your order #${orderId} has been shipped. Tracking: ${trackingNumber}`,
+      htmlContent
+    );
+  } catch (error) {
+    console.error('Error sending shipping notification:', error);
+  }
 };
 
 const sendLowStockAlert = async (productId, currentStock) => {
-    try {
-        const product = await sequelize.models.Product.findByPk(productId);
-        if (!product) return;
+  try {
+    const product = await sequelize.models.Product.findByPk(productId);
+    if (!product) return;
 
-        // Get admin users
-        const admins = await sequelize.models.User.findAll({
-            where: { role: 'admin', is_active: true }
-        });
+    // Get admin users
+    const admins = await sequelize.models.User.findAll({
+      where: { role: 'admin', is_active: true }
+    });
 
-        const htmlContent = `
+    const htmlContent = `
       <h1>Low Stock Alert</h1>
       <p>The following product is running low on stock:</p>
       <p><strong>Product:</strong> ${product.name}</p>
@@ -140,39 +139,39 @@ const sendLowStockAlert = async (productId, currentStock) => {
       <p>Please consider restocking this item.</p>
     `;
 
-        for (const admin of admins) {
-            await sendEmail(
-                admin.email,
-                `Low Stock Alert - ${product.name}`,
-                `Low stock alert: ${product.name} has only ${currentStock} units remaining.`,
-                htmlContent
-            );
-        }
-    } catch (error) {
-        console.error('Error sending low stock alert:', error);
+    for (const admin of admins) {
+      await sendEmail(
+        admin.email,
+        `Low Stock Alert - ${product.name}`,
+        `Low stock alert: ${product.name} has only ${currentStock} units remaining.`,
+        htmlContent
+      );
     }
+  } catch (error) {
+    console.error('Error sending low stock alert:', error);
+  }
 };
 
 const sendAbandonedCartReminder = async (userId) => {
-    try {
-        const user = await sequelize.models.User.findByPk(userId);
-        if (!user) return;
+  try {
+    const user = await sequelize.models.User.findByPk(userId);
+    if (!user) return;
 
-        const cart = await sequelize.models.Cart.findOne({
-            where: { user_id: userId },
-            include: [{
-                model: sequelize.models.CartItem,
-                as: 'items',
-                include: [{
-                    model: sequelize.models.Product,
-                    as: 'product'
-                }]
-            }]
-        });
+    const cart = await sequelize.models.Cart.findOne({
+      where: { user_id: userId },
+      include: [{
+        model: sequelize.models.CartItem,
+        as: 'items',
+        include: [{
+          model: sequelize.models.Product,
+          as: 'product'
+        }]
+      }]
+    });
 
-        if (!cart || cart.items.length === 0) return;
+    if (!cart || cart.items.length === 0) return;
 
-        const htmlContent = `
+    const htmlContent = `
       <h1>Don't Forget Your Items!</h1>
       <p>Hi ${user.name},</p>
       <p>You have items waiting in your cart. Complete your purchase before they're gone!</p>
@@ -189,23 +188,23 @@ const sendAbandonedCartReminder = async (userId) => {
       <p><a href="${process.env.FRONTEND_URL}/cart" style="background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Complete Purchase</a></p>
     `;
 
-        await sendEmail(
-            user.email,
-            'Complete Your Purchase',
-            'You have items in your cart waiting for you.',
-            htmlContent
-        );
-    } catch (error) {
-        console.error('Error sending abandoned cart reminder:', error);
-    }
+    await sendEmail(
+      user.email,
+      'Complete Your Purchase',
+      'You have items in your cart waiting for you.',
+      htmlContent
+    );
+  } catch (error) {
+    console.error('Error sending abandoned cart reminder:', error);
+  }
 };
 
 const sendPromotionalEmail = async (userId, promotionData) => {
-    try {
-        const user = await sequelize.models.User.findByPk(userId);
-        if (!user) return;
+  try {
+    const user = await sequelize.models.User.findByPk(userId);
+    if (!user) return;
 
-        const htmlContent = `
+    const htmlContent = `
       <h1>${promotionData.title}</h1>
       <p>Hi ${user.name},</p>
       <p>${promotionData.description}</p>
@@ -226,21 +225,21 @@ const sendPromotionalEmail = async (userId, promotionData) => {
       <p><small>This promotion expires on ${new Date(promotionData.expires_at).toLocaleDateString()}</small></p>
     `;
 
-        await sendEmail(
-            user.email,
-            promotionData.title,
-            promotionData.description,
-            htmlContent
-        );
-    } catch (error) {
-        console.error('Error sending promotional email:', error);
-    }
+    await sendEmail(
+      user.email,
+      promotionData.title,
+      promotionData.description,
+      htmlContent
+    );
+  } catch (error) {
+    console.error('Error sending promotional email:', error);
+  }
 };
 
 module.exports = {
-    sendOrderConfirmation,
-    sendShippingNotification,
-    sendLowStockAlert,
-    sendAbandonedCartReminder,
-    sendPromotionalEmail
+  sendOrderConfirmation,
+  sendShippingNotification,
+  sendLowStockAlert,
+  sendAbandonedCartReminder,
+  sendPromotionalEmail
 };

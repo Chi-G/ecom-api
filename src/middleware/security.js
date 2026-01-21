@@ -8,8 +8,8 @@ const createRateLimiters = () => {
     return {
         // Strict rate limiting for auth endpoints
         authLimiter: rateLimit({
-            windowMs: 15 * 60 * 1000, // 15 minutes
-            max: 5, // limit each IP to 5 requests per windowMs
+            windowMs: 15 * 60 * 1000,
+            max: 5,
             message: 'Too many authentication attempts, please try again later',
             standardHeaders: true,
             legacyHeaders: false,
@@ -17,8 +17,8 @@ const createRateLimiters = () => {
 
         // General API rate limiting
         apiLimiter: rateLimit({
-            windowMs: 15 * 60 * 1000, // 15 minutes
-            max: 100, // limit each IP to 100 requests per windowMs
+            windowMs: 15 * 60 * 1000,
+            max: 100,
             message: 'Too many requests from this IP, please try again later',
             standardHeaders: true,
             legacyHeaders: false,
@@ -26,8 +26,8 @@ const createRateLimiters = () => {
 
         // Payment endpoints - very strict
         paymentLimiter: rateLimit({
-            windowMs: 15 * 60 * 1000, // 15 minutes
-            max: 10, // limit each IP to 10 payment requests per windowMs
+            windowMs: 15 * 60 * 1000,
+            max: 10,
             message: 'Too many payment attempts, please try again later',
             standardHeaders: true,
             legacyHeaders: false,
@@ -35,10 +35,13 @@ const createRateLimiters = () => {
 
         // Slow down middleware for repeated requests
         speedLimiter: slowDown({
-            windowMs: 15 * 60 * 1000, // 15 minutes
-            delayAfter: 50, // allow 50 requests without delay
-            delayMs: 500, // add 500ms delay per request after delayAfter
-            maxDelayMs: 20000, // max delay of 20 seconds
+            windowMs: 15 * 60 * 1000,
+            delayAfter: 50,
+            delayMs: (used, req) => {
+                const delayAfter = req.slowDown.limit;
+                return (used - delayAfter) * 500;
+            },
+            maxDelayMs: 20000,
         }),
     };
 };
@@ -93,7 +96,6 @@ const sanitizeInput = (req, res, next) => {
         for (const key in obj) {
             if (typeof obj[key] === 'string') {
                 obj[key] = obj[key].trim();
-                // Remove potentially dangerous characters
                 obj[key] = obj[key].replace(/[<>\"'%;()&+]/g, '');
             } else if (typeof obj[key] === 'object' && obj[key] !== null) {
                 sanitize(obj[key]);

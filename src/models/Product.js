@@ -78,6 +78,11 @@ const Product = sequelize.define('Product', {
     },
     {
       fields: ['name']
+    },
+    {
+      type: 'FULLTEXT',
+      name: 'products_fulltext',
+      fields: ['name', 'description']
     }
   ]
 });

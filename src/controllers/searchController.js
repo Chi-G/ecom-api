@@ -1,6 +1,5 @@
-const { Product, Category, Review } = require('../models');
+const { Product, Category, Review, SearchHistory } = require('../models');
 const { Op, fn, col, literal } = require('sequelize');
-const redis = require('../config/redis');
 
 const searchProducts = async (req, res, next) => {
   try {
@@ -17,19 +16,6 @@ const searchProducts = async (req, res, next) => {
       page = 1,
       limit = 20
     } = req.query;
-
-    // Create cache key
-    const cacheKey = `search:${JSON.stringify(req.query)}`;
-
-    // Check cache first
-    const cachedResults = await redis.get(cacheKey);
-    if (cachedResults) {
-      return res.json({
-        success: true,
-        data: JSON.parse(cachedResults),
-        cached: true
-      });
-    }
 
     const whereClause = { is_active: true };
     const havingClause = {};
@@ -101,7 +87,7 @@ const searchProducts = async (req, res, next) => {
       case 'popularity':
         order = [[literal('total_sold'), 'DESC']];
         break;
-      default: // relevance
+      default:
         order = [[literal('MATCH(name, description) AGAINST(:query)'), 'DESC']];
     }
 
@@ -135,18 +121,40 @@ const searchProducts = async (req, res, next) => {
           )`), 'total_sold']
         ]
       },
-      group: ['Product.id', 'category.id'],
+      // Group by all columns used in attributes to satisfy ONLY_FULL_GROUP_BY
+      group: [
+        'Product.id',
+        'Product.name',
+        'Product.description',
+        'Product.price',
+        'Product.category_id',
+        'Product.brand',
+        'Product.stock',
+        'Product.images',
+        'Product.average_rating',
+        'Product.rating_count',
+        'Product.is_active',
+        'Product.created_at',
+        'Product.updated_at',
+        'category.id',
+        'category.name'
+      ],
       having: havingClause,
       order,
       limit: parseInt(limit),
-      offset: (page - 1) * limit
+      offset: (page - 1) * limit,
+      replacements: { query }, // Pass query to literal MATCH AGAINST
+      subQuery: false // Prevent issues with group by in subqueries
     };
 
     // Execute search
     const { count, rows: products } = await Product.findAndCountAll(queryOptions);
 
+    // Get total count (findAndCountAll with group returns an array of counts)
+    const totalItems = Array.isArray(count) ? count.length : count;
+
     // Get filters data for sidebar
-    const [categories, brands, priceRange] = await Promise.all([
+    const [sidebarCategories, sidebarBrands, priceRange] = await Promise.all([
       Category.findAll({
         where: { is_active: true },
         include: [{
@@ -187,8 +195,8 @@ const searchProducts = async (req, res, next) => {
     const results = {
       products,
       filters: {
-        categories: categories.filter(c => c.dataValues.product_count > 0),
-        brands: brands.filter(b => b.dataValues.brand),
+        categories: sidebarCategories.filter(c => c.dataValues.product_count > 0),
+        brands: sidebarBrands.filter(b => b.dataValues.brand),
         price_range: {
           min: priceRange?.dataValues.min_price || 0,
           max: priceRange?.dataValues.max_price || 0
@@ -196,13 +204,13 @@ const searchProducts = async (req, res, next) => {
       },
       pagination: {
         current_page: parseInt(page),
-        total_pages: Math.ceil(count.length / limit),
-        total_items: count.length,
+        total_pages: Math.ceil(totalItems / limit),
+        total_items: totalItems,
         items_per_page: parseInt(limit)
       },
       search_info: {
         query,
-        results_count: count.length,
+        results_count: totalItems,
         executed_filters: {
           category,
           minPrice,
@@ -213,9 +221,6 @@ const searchProducts = async (req, res, next) => {
         }
       }
     };
-
-    // Cache results for 5 minutes
-    await redis.setex(cacheKey, 300, JSON.stringify(results));
 
     res.json({
       success: true,
@@ -279,20 +284,24 @@ const getSearchSuggestions = async (req, res, next) => {
 
 const getPopularSearches = async (req, res, next) => {
   try {
-    // Get popular searches from cache or database
-    const popularSearches = await redis.zrevrange('popular_searches', 0, 9, 'WITHSCORES');
-
-    const searches = [];
-    for (let i = 0; i < popularSearches.length; i += 2) {
-      searches.push({
-        term: popularSearches[i],
-        count: parseInt(popularSearches[i + 1])
-      });
-    }
+    // Get top 10 most searched queries from MySQL
+    const popularSearches = await SearchHistory.findAll({
+      attributes: [
+        'query',
+        ['search_count', 'count'],
+        'last_searched_at'
+      ],
+      order: [['search_count', 'DESC']],
+      limit: 10
+    });
 
     res.json({
       success: true,
-      data: searches
+      data: popularSearches.map(search => ({
+        term: search.query,
+        count: search.search_count,
+        last_searched: search.last_searched_at
+      }))
     });
   } catch (error) {
     next(error);
@@ -303,17 +312,55 @@ const trackSearch = async (req, res, next) => {
   try {
     const { query } = req.body;
 
-    if (query && query.length > 2) {
-      // Increment search counter in Redis
-      await redis.zincrby('popular_searches', 1, query.toLowerCase());
+    if (!query || query.length < 2) {
+      return res.json({
+        success: false,
+        message: 'Query too short to track'
+      });
+    }
 
-      // Keep only top 100 searches
-      await redis.zremrangebyrank('popular_searches', 0, -101);
+    const normalizedQuery = query.toLowerCase().trim();
+
+    // Find existing search or create new one
+    const [searchRecord, created] = await SearchHistory.findOrCreate({
+      where: { query: normalizedQuery },
+      defaults: {
+        query: normalizedQuery,
+        search_count: 1,
+        last_searched_at: new Date()
+      }
+    });
+
+    // If record exists, increment count and update timestamp
+    if (!created) {
+      await searchRecord.increment('search_count');
+      await searchRecord.update({ last_searched_at: new Date() });
+    }
+
+    // Keep only top 100 searches (cleanup old/unpopular ones)
+    const totalSearches = await SearchHistory.count();
+    if (totalSearches > 100) {
+      const topSearches = await SearchHistory.findAll({
+        attributes: ['id'],
+        order: [['search_count', 'DESC']],
+        limit: 100
+      });
+
+      const topIds = topSearches.map(s => s.id);
+      await SearchHistory.destroy({
+        where: {
+          id: { [Op.notIn]: topIds }
+        }
+      });
     }
 
     res.json({
       success: true,
-      message: 'Search tracked'
+      message: 'Search tracked',
+      data: {
+        query: normalizedQuery,
+        total_searches: created ? 1 : searchRecord.search_count + 1
+      }
     });
   } catch (error) {
     next(error);

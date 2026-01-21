@@ -22,6 +22,7 @@ const { apiLimiter, paymentLimiter } = createRateLimiters();
 router.get('/cart', protect, cartController.getCart);
 router.post('/cart/add', protect, apiLimiter, cartController.addToCart);
 router.put('/cart/items/:itemId', protect, cartController.updateCartItem);
+router.patch('/cart/items/:itemId', protect, cartController.updateCartItem);
 router.delete('/cart/items/:itemId', protect, cartController.removeFromCart);
 router.delete('/cart/clear', protect, cartController.clearCart);
 router.post('/cart/move-to-wishlist/:itemId', protect, cartController.moveToWishlist);

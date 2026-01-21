@@ -10,6 +10,7 @@ const Wishlist = require('./Wishlist');
 const Review = require('./Review');
 const Address = require('./Address');
 const Payment = require('./Payment');
+const SearchHistory = require('./SearchHistory');
 
 // define associations
 User.hasMany(Order, { foreignKey: 'user_id', as: 'orders' });
@@ -37,7 +38,7 @@ Product.hasMany(CartItem, { foreignKey: 'product_id', as: 'cartItems' });
 // Wishlist Associations
 User.belongsToMany(Product, { through: Wishlist, foreignKey: 'user_id', as: 'wishlist' });
 Product.belongsToMany(User, { through: Wishlist, foreignKey: 'product_id', as: 'wishlistedBy' });
-Wishlist.belongsTo(Product, { foreignKey: 'product_id', as: 'product' }); // Direct access if needed
+Wishlist.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
 Wishlist.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 // Review Associations
@@ -58,22 +59,53 @@ Payment.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
 // sync database
 const syncDatabase = async () => {
   try {
-    await sequelize.sync({ alter: true });
+    await sequelize.sync();
     console.log('MySQL tables synchronized successfully.');
 
-    // seed categories if empty
+    // Seed categories if empty
     const categoryCount = await Category.count();
     if (categoryCount === 0) {
       const categories = [
-        { name: 'electronics', description: 'Electronic devices and gadgets' },
-        { name: 'clothing', description: 'Apparel and fashion items' },
-        { name: 'books', description: 'Books and publications' },
-        { name: 'home', description: 'Home and furniture items' },
-        { name: 'sports', description: 'Sports and fitness equipment' },
-        { name: 'other', description: 'Other miscellaneous items' }
+        { name: 'Electronics', description: 'Gadgets, computers, and electronic devices' },
+        { name: 'Fashion', description: 'Clothing, shoes, and accessories' },
+        { name: 'Home & Kitchen', description: 'Appliances and home decor' },
+        { name: 'Books', description: 'Physical and digital books' },
+        { name: 'Sports & Outdoors', description: 'Exercise and outdoor equipment' },
+        { name: 'Beauty', description: 'Skincare, makeup, and personal care' },
+        { name: 'Health', description: 'Vitamins and wellness products' },
+        { name: 'Toys & Games', description: 'Fun for all ages' },
+        { name: 'Automotive', description: 'Car parts and accessories' },
+        { name: 'Office Supplies', description: 'Paper, pens, and furniture' }
       ];
       await Category.bulkCreate(categories);
       console.log('Categories seeded successfully.');
+    }
+
+    // Seed products if empty
+    const productCount = await Product.count();
+    if (productCount === 0) {
+      const allCategories = await Category.findAll();
+      const products = [];
+
+      allCategories.forEach(cat => {
+        // Create 3 products for each category
+        for (let i = 1; i <= 3; i++) {
+          products.push({
+            name: `${cat.name} Sample Item ${i}`,
+            description: `High quality ${cat.name} product. This is a detailed description for testing purposes.`,
+            price: Math.floor(Math.random() * 500) + 10.99,
+            category_id: cat.id,
+            brand: 'TechBrand',
+            stock: Math.floor(Math.random() * 100) + 10,
+            images: JSON.stringify(['https://via.placeholder.com/400']),
+            average_rating: (Math.random() * 2 + 3).toFixed(1),
+            rating_count: Math.floor(Math.random() * 50)
+          });
+        }
+      });
+
+      await Product.bulkCreate(products);
+      console.log('Products seeded successfully.');
     }
   } catch (error) {
     console.error('Database synchronization failed:', error);
@@ -94,6 +126,7 @@ module.exports = {
   Review,
   Address,
   Payment,
+  SearchHistory,
   syncDatabase,
   testConnection
 };

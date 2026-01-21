@@ -2,7 +2,6 @@ const cron = require('node-cron');
 const { Order, Product, Cart, User } = require('../models');
 const { sequelize } = require('../config/database');
 const notificationService = require('../services/notificationService');
-const redis = require('../config/redis');
 
 // Schedule jobs
 const startCronJobs = () => {
@@ -55,14 +54,8 @@ const checkLowStockProducts = async () => {
         });
 
         for (const product of lowStockProducts) {
-            // Check if alert was already sent in last 24 hours
-            const cacheKey = `low_stock_alert:${product.id}`;
-            const alertSent = await redis.get(cacheKey);
-
-            if (!alertSent) {
-                await notificationService.sendLowStockAlert(product.id, product.stock);
-                await redis.setex(cacheKey, 86400, 'sent'); // 24 hours
-            }
+            // Send low stock alert (without Redis caching)
+            await notificationService.sendLowStockAlert(product.id, product.stock);
         }
     } catch (error) {
         console.error('Error checking low stock products:', error);
@@ -87,14 +80,7 @@ const sendAbandonedCartReminders = async () => {
         });
 
         for (const cart of abandonedCarts) {
-            // Check if reminder was already sent
-            const cacheKey = `abandoned_cart:${cart.user_id}`;
-            const reminderSent = await redis.get(cacheKey);
-
-            if (!reminderSent) {
-                await notificationService.sendAbandonedCartReminder(cart.user_id);
-                await redis.setex(cacheKey, 259200, 'sent'); // 3 days
-            }
+            await notificationService.sendAbandonedCartReminder(cart.user_id);
         }
     } catch (error) {
         console.error('Error sending abandoned cart reminders:', error);

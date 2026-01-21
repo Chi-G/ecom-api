@@ -356,6 +356,65 @@ const exportAnalytics = async (req, res, next) => {
     }
 };
 
+// Helper functions for data export
+const getSalesData = async () => {
+    return await sequelize.query(`
+        SELECT 
+          o.id as order_id,
+          u.name as customer_name,
+          o.total_amount,
+          o.status as order_status,
+          o.payment_status,
+          o.payment_method,
+          o.created_at as order_date
+        FROM orders o
+        JOIN users u ON o.user_id = u.id
+        WHERE o.status IN ('processing', 'shipped', 'delivered', 'completed')
+        AND o.payment_status = 'completed'
+        ORDER BY o.created_at DESC
+    `, { type: sequelize.QueryTypes.SELECT });
+};
+
+const getUserAnalyticsData = async () => {
+    return await sequelize.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.created_at as joined_date,
+        COUNT(o.id) as total_orders,
+        COALESCE(SUM(o.total_amount), 0) as total_spent,
+        COALESCE(AVG(o.total_amount), 0) as avg_order_value,
+        MAX(o.created_at) as last_order_date
+      FROM users u
+      LEFT JOIN orders o ON u.id = o.user_id AND o.status IN ('processing', 'shipped', 'delivered', 'completed')
+      GROUP BY u.id, u.name, u.email, u.created_at
+      ORDER BY total_spent DESC
+    `, { type: sequelize.QueryTypes.SELECT });
+};
+
+const getProductAnalyticsData = async () => {
+    return await sequelize.query(`
+      SELECT 
+        p.id,
+        p.name,
+        p.price,
+        p.stock,
+        c.name as category,
+        COALESCE(SUM(oi.quantity), 0) as units_sold,
+        COALESCE(SUM(oi.price * oi.quantity), 0) as total_revenue,
+        COALESCE(AVG(r.rating), 0) as avg_rating
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN order_items oi ON p.id = oi.product_id
+      LEFT JOIN orders o ON oi.order_id = o.id AND o.status IN ('processing', 'shipped', 'delivered', 'completed')
+      LEFT JOIN reviews r ON p.id = r.product_id AND r.is_active = true
+      WHERE p.is_active = true
+      GROUP BY p.id, p.name, p.price, p.stock, c.name
+      ORDER BY total_revenue DESC
+    `, { type: sequelize.QueryTypes.SELECT });
+};
+
 module.exports = {
     getDashboardStats,
     getSalesAnalytics,

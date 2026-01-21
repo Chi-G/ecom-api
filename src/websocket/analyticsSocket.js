@@ -1,5 +1,4 @@
 const socketIO = require('socket.io');
-const redis = require('../config/redis');
 const { Order, Product, User } = require('../models');
 
 let io;

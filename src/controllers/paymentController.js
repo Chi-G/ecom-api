@@ -61,7 +61,8 @@ const createPaymentIntent = async (req, res, next) => {
             success: true,
             data: {
                 client_secret: paymentIntent.client_secret,
-                payment_id: payment.id
+                payment_id: payment.id,
+                paymentIntentId: paymentIntent.id
             }
         });
     } catch (error) {
@@ -71,62 +72,47 @@ const createPaymentIntent = async (req, res, next) => {
 };
 
 const confirmPayment = async (req, res, next) => {
-    const transaction = await sequelize.transaction();
-
     try {
-        const { paymentId, paymentIntentId } = req.body;
+        const { paymentId, payment_id, paymentIntentId } = req.body;
+        const id = paymentId || payment_id;
 
-        const payment = await Payment.findByPk(paymentId, {
-            include: [{ model: Order, as: 'order' }],
-            transaction
-        });
+        const payment = await Payment.findByPk(id);
 
         if (!payment) {
-            await transaction.rollback();
             return res.status(404).json({ message: 'Payment not found' });
         }
 
-        // Retrieve payment intent from Stripe
+        // Retrieve payment intent from Stripe to check status
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
-        if (paymentIntent.status === 'succeeded') {
-            // Update payment record
-            await payment.update({
-                status: 'completed',
-                processed_at: new Date(),
-                gateway_response: paymentIntent
-            }, { transaction });
+        // Dynamic Toggle: Allow "succeeded" OR if SKIP_PAYMENT_VERIFICATION is true
+        const isSuccessful = paymentIntent.status === 'succeeded';
+        const skipVerify = process.env.SKIP_PAYMENT_VERIFICATION === 'true';
 
-            // Update order
-            await payment.order.update({
-                payment_status: 'completed',
-                status: 'processing'
-            }, { transaction });
+        if (isSuccessful || skipVerify) {
+            const fulfillmentService = require('../services/fulfillmentService');
+            const result = await fulfillmentService.completeOrderFulfillment(paymentIntentId);
 
-            // Send confirmation email
-            const { sendEmail } = require('../config/email');
-            await sendEmail(
-                payment.order.user.email,
-                'Payment Confirmation',
-                `Your payment for order #${payment.order.id} has been confirmed.`,
-                `<h1>Payment Confirmed</h1><p>Your payment has been processed successfully.</p>`
-            );
-
-            await transaction.commit();
-
-            res.json({
-                success: true,
-                message: 'Payment confirmed successfully'
-            });
+            if (result.success) {
+                res.json({
+                    success: true,
+                    message: skipVerify && !isSuccessful
+                        ? 'Testing Mode: Order processed without real payment verification'
+                        : 'Payment confirmed and order processed successfully'
+                });
+            } else {
+                res.status(400).json({
+                    success: false,
+                    message: result.message || 'Payment processing failed'
+                });
+            }
         } else {
-            await transaction.rollback();
             res.status(400).json({
                 success: false,
-                message: 'Payment not completed'
+                message: `Payment status: ${paymentIntent.status}. To bypass this in Postman, set SKIP_PAYMENT_VERIFICATION=true in your .env`
             });
         }
     } catch (error) {
-        await transaction.rollback();
         next(error);
     }
 };

@@ -24,6 +24,13 @@ app.use(cors({
   credentials: true,
 }));
 
+const enterpriseRoutes = require('./routes/enterpriseRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
+
+// Webhook route (must be before express.json() if not using route-specific raw parsing, 
+// but even with route-specific it's safer to place it early or ensure express.json doesn't catch it)
+app.use('/api/webhooks', webhookRoutes);
+
 // body parser middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -37,8 +44,6 @@ if (process.env.NODE_ENV === 'development') {
 } else {
   app.use(morgan('combined'));
 }
-
-const enterpriseRoutes = require('./routes/enterpriseRoutes');
 
 // routes
 app.use('/api', enterpriseRoutes);
