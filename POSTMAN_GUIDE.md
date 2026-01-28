@@ -75,3 +75,15 @@ This guide provides a comprehensive list of all available endpoints in the Ecomm
 ## Required Header for Protected Routes
 **Key:** `Authorization`  
 **Value:** `Bearer <your_token_here>`
+
+## NEW: Advanced Features & Refactoring Tests
+These endpoints test the new `src/utils` implementation (Filtering, Sorting, Pagination, Error Handling).
+
+| Feature | Endpoint | Method | Params / Body | Expected Outcome |
+| :--- | :--- | :--- | :--- | :--- |
+| **Filter by Price** | `/products` | `GET` | `?price[gte]=100&price[lte]=500` | Only products between $100-$500 |
+| **Sort by Price** | `/products` | `GET` | `?sort=-price` | Products listed High to Low |
+| **Pagination** | `/products` | `GET` | `?page=2&limit=2` | Results 3-4 (if you have 4+ items) |
+| **Combined** | `/products` | `GET` | `?price[gte]=50&sort=price&limit=5` | Cheap items first, filtered by price, max 5 |
+| **Error Handling** | `/auth/login` | `POST` | `{"email": "bad@mail.com", "password": "x"}` | JSON with `"status": "fail"` (401) |
+| **Bad Request** | `/auth/register` | `POST` | `{"email": "invalid-email"}` | JSON with `"status": "fail"` (400) |
