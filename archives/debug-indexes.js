@@ -15,7 +15,7 @@ async function checkAllIndexes() {
                 console.log(`Total indexes: ${results.length}`);
             } catch (err) {
                 console.log(`Could not check ${table}: ${err.message}`);
-            }
+            } 
         }
     } catch (error) {
         console.error('Error:', error);

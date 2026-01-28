@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
-const { sendEmail } = require('../config/email');
+const { sendWelcomeEmail } = require('../services/notificationService');
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -26,17 +26,12 @@ const register = async (req, res, next) => {
     });
 
     // send welcome email
-    await sendEmail(
-      email,
-      'Welcome to E-commerce Platform',
-      `Hello ${name},\n\nWelcome to our e-commerce platform! Your account has been successfully created.`,
-      `<h1>Welcome ${name}!</h1><p>Your account has been successfully created.</p>`
-    );
+    await sendWelcomeEmail(user);
 
     res.status(201).json({
       success: true,
       data: {
-        id: user.id,
+        id: user.id, 
         name: user.name,
         email: user.email,
         role: user.role,

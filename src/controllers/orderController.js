@@ -1,6 +1,6 @@
 const { Order, OrderItem, Product, User } = require('../models');
 const { sequelize } = require('../config/database');
-const { sendEmail } = require('../config/email');
+const { sendOrderConfirmation, sendOrderStatusUpdate } = require('../services/notificationService');
 
 const createOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
@@ -69,12 +69,7 @@ const createOrder = async (req, res, next) => {
     // send order confirmation email (non-blocking)
     try {
       const user = await User.findByPk(req.user.id);
-      await sendEmail(
-        user.email,
-        'Order Confirmation',
-        `Your order #${order.id} has been placed successfully. Total: $${totalAmount.toFixed(2)}`,
-        `<h1>Order Confirmation</h1><p>Your order #${order.id} has been placed successfully.</p><p>Total: $${totalAmount.toFixed(2)}</p>`
-      );
+      await sendOrderConfirmation(order.id, user.email);
     } catch (emailError) {
       console.error('Failed to send order confirmation email:', emailError);
       // do not fail the request if email fails, as order is already placed
@@ -199,12 +194,7 @@ const updateOrderStatus = async (req, res, next) => {
     });
 
     // send status update email
-    await sendEmail(
-      order.user.email,
-      'Order Status Update',
-      `Your order #${order.id} status has been updated to: ${status}`,
-      `<h1>Order Status Update</h1><p>Your order #${order.id} status has been updated to: <strong>${status}</strong></p>`
-    );
+    await sendOrderStatusUpdate(order.id, status);
 
     res.json({
       success: true,
