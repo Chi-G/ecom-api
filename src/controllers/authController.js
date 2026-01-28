@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { sendWelcomeEmail } = require('../services/notificationService');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/AppError');
+const logger = require('../utils/logger');
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -8,91 +11,95 @@ const generateToken = (id) => {
   });
 };
 
-const register = async (req, res, next) => {
+const register = catchAsync(async (req, res, next) => {
+  const { name, email, password } = req.body;
+
+  // check if user exists
+  const existingUser = await User.findOne({ where: { email } });
+  if (existingUser) {
+    return next(new AppError('User already exists', 400));
+  }
+
+  // create user
+  const user = await User.create({
+    name,
+    email,
+    password,
+  });
+
+  // send welcome email
   try {
-    const { name, email, password } = req.body;
-
-    // check if user exists
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-
-    // create user
-    const user = await User.create({
-      name,
-      email,
-      password,
-    });
-
-    // send welcome email
     await sendWelcomeEmail(user);
-
-    res.status(201).json({
-      success: true,
-      data: {
-        id: user.id, 
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user.id),
-      },
-    });
-  } catch (error) {
-    next(error);
+  } catch (err) {
+    logger.error('Failed to send welcome email', err);
   }
-};
 
-const login = async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
+  logger.info(`User registered: ${email}`);
 
-    // check for user email
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
+  res.status(201).json({
+    success: true,
+    data: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      token: generateToken(user.id),
+    },
+  });
+});
 
-    // check if password matches
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
+const login = catchAsync(async (req, res, next) => {
+  const { email, password } = req.body;
 
-    // check if user is active
-    if (!user.is_active) {
-      return res.status(401).json({ message: 'Account is deactivated' });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user.id),
-      },
-    });
-  } catch (error) {
-    next(error);
+  if (!email || !password) {
+    return next(new AppError('Please provide email and password', 400));
   }
-};
 
-const getMe = async (req, res, next) => {
-  try {
-    const user = await User.findByPk(req.user.id, {
-      attributes: { exclude: ['password'] }
-    });
-
-    res.json({
-      success: true,
-      data: user,
-    });
-  } catch (error) {
-    next(error);
+  // check for user email
+  const user = await User.findOne({ where: { email } });
+  if (!user) {
+    return next(new AppError('Invalid credentials', 401));
   }
-};
+
+  // check if password matches
+  const isMatch = await user.comparePassword(password);
+  if (!isMatch) {
+    return next(new AppError('Invalid credentials', 401));
+  }
+
+  // check if user is active
+  if (!user.is_active) {
+    return next(new AppError('Account is deactivated', 401));
+  }
+
+  logger.info(`User logged in: ${email}`);
+
+  res.json({
+    success: true,
+    data: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      token: generateToken(user.id),
+    },
+  });
+});
+
+const getMe = catchAsync(async (req, res, next) => {
+  const user = await User.findByPk(req.user.id, {
+    attributes: { exclude: ['password'] }
+  });
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  res.json({
+    success: true,
+    data: user,
+  });
+});
 
 module.exports = {
   register,

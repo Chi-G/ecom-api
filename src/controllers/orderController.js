@@ -1,8 +1,12 @@
 const { Order, OrderItem, Product, User } = require('../models');
 const { sequelize } = require('../config/database');
 const { sendOrderConfirmation, sendOrderStatusUpdate } = require('../services/notificationService');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/AppError');
+const APIFeatures = require('../utils/apiFeatures');
+const logger = require('../utils/logger');
 
-const createOrder = async (req, res, next) => {
+const createOrder = catchAsync(async (req, res, next) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -19,13 +23,11 @@ const createOrder = async (req, res, next) => {
       });
 
       if (!product) {
-        await transaction.rollback();
-        return res.status(404).json({ message: `Product ${item.product_id} not found` });
+        throw new AppError(`Product ${item.product_id} not found`, 404);
       }
 
       if (product.stock < item.quantity) {
-        await transaction.rollback();
-        return res.status(400).json({ message: `Insufficient stock for ${product.name}` });
+        throw new AppError(`Insufficient stock for ${product.name}`, 400);
       }
 
       const itemTotal = parseFloat(product.price) * item.quantity;
@@ -64,14 +66,15 @@ const createOrder = async (req, res, next) => {
     }
 
     await transaction.commit();
-    let isCommitted = true;
+
+    logger.info(`Order created: ${order.id} by user ${req.user.id}`);
 
     // send order confirmation email (non-blocking)
     try {
       const user = await User.findByPk(req.user.id);
       await sendOrderConfirmation(order.id, user.email);
     } catch (emailError) {
-      console.error('Failed to send order confirmation email:', emailError);
+      logger.error('Failed to send order confirmation email', emailError);
       // do not fail the request if email fails, as order is already placed
     }
 
@@ -93,23 +96,41 @@ const createOrder = async (req, res, next) => {
       data: completeOrder,
     });
   } catch (error) {
-    // Only rollback if transaction hasn't been committed yet
-    if (transaction && !transaction.finished && transaction.connection) {
-      try {
-        await transaction.rollback();
-      } catch (rollbackError) {
-        console.error('Transaction rollback failed:', rollbackError);
-      }
-    }
-    next(error);
+    if (transaction) await transaction.rollback();
+    throw error;
   }
-};
+});
 
-const getMyOrders = async (req, res, next) => {
-  try {
-    const orders = await Order.findAll({
-      where: { user_id: req.user.id },
+const getMyOrders = catchAsync(async (req, res, next) => {
+  const orders = await Order.findAll({
+    where: { user_id: req.user.id },
+    include: [{
+      model: OrderItem,
+      as: 'items',
       include: [{
+        model: Product,
+        as: 'product',
+        attributes: ['id', 'name', 'images']
+      }]
+    }],
+    order: [['created_at', 'DESC']]
+  });
+
+  res.json({
+    success: true,
+    data: orders,
+  });
+});
+
+const getOrder = catchAsync(async (req, res, next) => {
+  const order = await Order.findByPk(req.params.id, {
+    include: [
+      {
+        model: User,
+        as: 'user',
+        attributes: ['id', 'name', 'email']
+      },
+      {
         model: OrderItem,
         as: 'items',
         include: [{
@@ -117,138 +138,100 @@ const getMyOrders = async (req, res, next) => {
           as: 'product',
           attributes: ['id', 'name', 'images']
         }]
-      }],
-      order: [['created_at', 'DESC']]
-    });
+      }
+    ]
+  });
 
-    res.json({
-      success: true,
-      data: orders,
-    });
-  } catch (error) {
-    next(error);
+  if (!order) {
+    return next(new AppError('Order not found', 404));
   }
-};
 
-const getOrder = async (req, res, next) => {
-  try {
-    const order = await Order.findByPk(req.params.id, {
-      include: [
-        {
-          model: User,
-          as: 'user',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: OrderItem,
-          as: 'items',
-          include: [{
-            model: Product,
-            as: 'product',
-            attributes: ['id', 'name', 'images']
-          }]
-        }
-      ]
-    });
-
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
-
-    // make sure user owns order or is admin
-    if (order.user_id !== req.user.id && req.user.role !== 'admin') {
-      return res.status(401).json({ message: 'Not authorized to view this order' });
-    }
-
-    res.json({
-      success: true,
-      data: order,
-    });
-  } catch (error) {
-    next(error);
+  // make sure user owns order or is admin
+  if (order.user_id !== req.user.id && req.user.role !== 'admin') {
+    return next(new AppError('Not authorized to view this order', 403));
   }
-};
 
-const updateOrderStatus = async (req, res, next) => {
+  res.json({
+    success: true,
+    data: order,
+  });
+});
+
+const updateOrderStatus = catchAsync(async (req, res, next) => {
+  if (!req.body.status) {
+    return next(new AppError('Status is required', 400));
+  }
+  const { status } = req.body;
+
+  const [updatedRows] = await Order.update(
+    { status },
+    { where: { id: req.params.id } }
+  );
+
+  if (updatedRows === 0) {
+    return next(new AppError('Order not found', 404));
+  }
+
+  const order = await Order.findByPk(req.params.id, {
+    include: [{
+      model: User,
+      as: 'user',
+      attributes: ['id', 'name', 'email']
+    }]
+  });
+
+  // send status update email
   try {
-    if (!req.body) {
-      return res.status(400).json({ success: false, message: 'Request body is missing' });
-    }
-    const { status } = req.body;
+    await sendOrderStatusUpdate(order.id, status);
+  } catch (err) {
+    logger.error('Failed to send status update email', err);
+  }
 
-    const [updatedRows] = await Order.update(
-      { status },
-      { where: { id: req.params.id } }
-    );
+  res.json({
+    success: true,
+    data: order,
+  });
+});
 
-    if (updatedRows === 0) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
+const getOrders = catchAsync(async (req, res, next) => {
+  // Use APIFeatures for standard pagination/filtering
+  const features = new APIFeatures(req.query)
+    .filter()
+    .sort()
+    .paginate();
 
-    const order = await Order.findByPk(req.params.id, {
-      include: [{
+  const { count, rows: orders } = await Order.findAndCountAll({
+    ...features.options,
+    include: [
+      {
         model: User,
         as: 'user',
         attributes: ['id', 'name', 'email']
-      }]
-    });
-
-    // send status update email
-    await sendOrderStatusUpdate(order.id, status);
-
-    res.json({
-      success: true,
-      data: order,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-const getOrders = async (req, res, next) => {
-  try {
-    const { page = 1, limit = 10, status } = req.query;
-
-    const whereClause = {};
-    if (status) whereClause.status = status;
-
-    const { count, rows: orders } = await Order.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: User,
-          as: 'user',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: OrderItem,
-          as: 'items',
-          include: [{
-            model: Product,
-            as: 'product',
-            attributes: ['id', 'name']
-          }]
-        }
-      ],
-      order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
-      offset: (page - 1) * limit,
-    });
-
-    res.json({
-      success: true,
-      data: orders,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(count / limit),
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
       },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+      {
+        model: OrderItem,
+        as: 'items',
+        include: [{
+          model: Product,
+          as: 'product',
+          attributes: ['id', 'name']
+        }]
+      }
+    ],
+    distinct: true
+  });
+
+  res.json({
+    success: true,
+    data: orders,
+    pagination: {
+      currentPage: features.page,
+      totalPages: Math.ceil(count / features.limit),
+      totalItems: count,
+      itemsPerPage: features.limit,
+    },
+  });
+});
 
 module.exports = {
   createOrder,

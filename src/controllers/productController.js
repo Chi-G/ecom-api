@@ -1,160 +1,129 @@
 const { Product, Category } = require('../models');
-const { Op } = require('sequelize');
+const APIFeatures = require('../utils/apiFeatures');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/AppError');
 
-const getProducts = async (req, res, next) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      category,
-      minPrice,
-      maxPrice,
-      search,
-      sort = '-created_at',
-    } = req.query;
-
-    // build where clause
-    const whereClause = { is_active: true };
-
-    if (category) {
-      const categoryRecord = await Category.findOne({ where: { name: category } });
-      if (categoryRecord) {
-        whereClause.category_id = categoryRecord.id;
-      }
+// Helper to handle category logic since APIFeatures is generic
+const handleCategoryFilter = async (query) => {
+  if (query.category) {
+    const categoryRecord = await Category.findOne({ where: { name: query.category } });
+    if (categoryRecord) {
+      return { category_id: categoryRecord.id };
     }
-
-    if (minPrice || maxPrice) {
-      whereClause.price = {};
-      if (minPrice) whereClause.price[Op.gte] = Number(minPrice);
-      if (maxPrice) whereClause.price[Op.lte] = Number(maxPrice);
-    }
-
-    if (search) {
-      whereClause[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { description: { [Op.like]: `%${search}%` } }
-      ];
-    }
-
-    // parse sort parameter
-    let order = [['created_at', 'DESC']];
-    if (sort) {
-      const sortField = sort.startsWith('-') ? sort.substring(1) : sort;
-      const sortOrder = sort.startsWith('-') ? 'DESC' : 'ASC';
-      order = [[sortField, sortOrder]];
-    }
-
-    // execute query with pagination
-    const { count, rows: products } = await Product.findAndCountAll({
-      where: whereClause,
-      include: [{
-        model: Category,
-        as: 'category',
-        attributes: ['id', 'name']
-      }],
-      order,
-      limit: parseInt(limit),
-      offset: (page - 1) * limit,
-    });
-
-    res.json({
-      success: true,
-      data: products,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(count / limit),
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
-      },
-    });
-  } catch (error) {
-    next(error);
   }
+  return {};
 };
 
-const getProduct = async (req, res, next) => {
-  try {
-    const product = await Product.findOne({
-      where: { id: req.params.id, is_active: true },
-      include: [{
-        model: Category,
-        as: 'category',
-        attributes: ['id', 'name']
-      }]
-    });
+const getProducts = catchAsync(async (req, res, next) => {
+  // Initialize features with req.query
+  const features = new APIFeatures(req.query)
+    .filter()
+    .sort()
+    .limitFields()
+    .paginate();
 
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
+  // Add specific Category logic
+  const categoryFilter = await handleCategoryFilter(req.query);
 
-    res.json({
-      success: true,
-      data: product,
-    });
-  } catch (error) {
-    next(error);
+  // Merge generic where options with category specific one and active check
+  const whereOptions = {
+    ...features.options.where,
+    ...categoryFilter,
+    is_active: true
+  };
+
+  features.options.where = whereOptions;
+
+  // Execute query
+  const { count, rows: products } = await Product.findAndCountAll({
+    ...features.options,
+    include: [{
+      model: Category,
+      as: 'category',
+      attributes: ['id', 'name']
+    }],
+    distinct: true
+  });
+
+  res.json({
+    success: true,
+    data: products,
+    pagination: {
+      currentPage: features.page,
+      totalPages: Math.ceil(count / features.limit),
+      totalItems: count,
+      itemsPerPage: features.limit,
+    },
+  });
+});
+
+const getProduct = catchAsync(async (req, res, next) => {
+  const product = await Product.findOne({
+    where: { id: req.params.id, is_active: true },
+    include: [{
+      model: Category,
+      as: 'category',
+      attributes: ['id', 'name']
+    }]
+  });
+
+  if (!product) {
+    return next(new AppError('Product not found top', 404));
   }
-};
 
-const createProduct = async (req, res, next) => {
-  try {
-    const product = await Product.create(req.body);
+  res.json({
+    success: true,
+    data: product,
+  });
+});
 
-    res.status(201).json({
-      success: true,
-      data: product,
-    });
-  } catch (error) {
-    next(error);
+const createProduct = catchAsync(async (req, res, next) => {
+  const product = await Product.create(req.body);
+
+  res.status(201).json({
+    success: true,
+    data: product,
+  });
+});
+
+const updateProduct = catchAsync(async (req, res, next) => {
+  const [updatedRows] = await Product.update(req.body, {
+    where: { id: req.params.id, is_active: true }
+  });
+
+  if (updatedRows === 0) {
+    return next(new AppError('Product not found', 404));
   }
-};
 
-const updateProduct = async (req, res, next) => {
-  try {
-    const [updatedRows] = await Product.update(req.body, {
-      where: { id: req.params.id, is_active: true }
-    });
+  const product = await Product.findByPk(req.params.id, {
+    include: [{
+      model: Category,
+      as: 'category',
+      attributes: ['id', 'name']
+    }]
+  });
 
-    if (updatedRows === 0) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
+  res.json({
+    success: true,
+    data: product,
+  });
+});
 
-    const product = await Product.findByPk(req.params.id, {
-      include: [{
-        model: Category,
-        as: 'category',
-        attributes: ['id', 'name']
-      }]
-    });
+const deleteProduct = catchAsync(async (req, res, next) => {
+  const [updatedRows] = await Product.update(
+    { is_active: false },
+    { where: { id: req.params.id, is_active: true } }
+  );
 
-    res.json({
-      success: true,
-      data: product,
-    });
-  } catch (error) {
-    next(error);
+  if (updatedRows === 0) {
+    return next(new AppError('Product not found', 404));
   }
-};
 
-const deleteProduct = async (req, res, next) => {
-  try {
-    const [updatedRows] = await Product.update(
-      { is_active: false },
-      { where: { id: req.params.id, is_active: true } }
-    );
-
-    if (updatedRows === 0) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Product deleted successfully',
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+  res.json({
+    success: true,
+    message: 'Product deleted successfully',
+  });
+});
 
 module.exports = {
   getProducts,
