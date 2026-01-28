@@ -50,7 +50,7 @@ const createEmailTemplate = (title, content) => `
 const sendWelcomeEmail = async (user) => {
   try {
     const htmlContent = createEmailTemplate(
-      'Welcome to UpWearLane!',
+      'Welcome to Ecommerce API!',
       `
         <h2 class="greeting">Hello ${user.name},</h2>
         <p class="message">We are thrilled to have you join our community! Your account has been successfully created and you're now ready to start shopping for the best fashion items.</p>
@@ -68,7 +68,7 @@ const sendWelcomeEmail = async (user) => {
 
     await sendEmail(
       user.email,
-      'Welcome to UpWearLane!',
+      'Welcome to Ecommerce API!',
       `Welcome ${user.name}! Your account has been successfully created.`,
       htmlContent
     );
