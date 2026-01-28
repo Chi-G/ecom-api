@@ -20,7 +20,7 @@ class APIFeatures {
             let value = queryObj[key];
 
             if (typeof value === 'object' && value !== null) {
-                // Handle nested operators like price[gte]
+                // Handle nested operators like price[gte] from standard parser
                 const operators = {};
                 Object.keys(value).forEach(op => {
                     if (Op[op]) {
@@ -28,11 +28,24 @@ class APIFeatures {
                     }
                 });
                 if (Object.keys(operators).length > 0) {
-                    this.options.where[key] = operators;
+                    this.options.where[key] = { ...this.options.where[key], ...operators };
                 }
             } else {
-                // Simple equality
-                this.options.where[key] = value;
+                // Handle flat keys (price[gte]) or simple values
+                const match = key.match(/^(\w+)\[(\w+)\]$/);
+
+                if (match) {
+                    const field = match[1];
+                    const operator = match[2];
+
+                    if (Op[operator]) {
+                        if (!this.options.where[field]) this.options.where[field] = {};
+                        this.options.where[field][Op[operator]] = value;
+                    }
+                } else {
+                    // Simple equality
+                    this.options.where[key] = value;
+                }
             }
         });
 

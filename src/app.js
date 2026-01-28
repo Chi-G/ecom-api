@@ -13,6 +13,9 @@ const orderRoutes = require('./routes/orderRoutes');
 
 const app = express();
 
+// Explicitly enable extended query parser (nested objects)
+app.set('query parser', 'extended');
+
 // security middleware
 app.use(helmet());
 
